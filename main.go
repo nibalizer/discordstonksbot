@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	finnhub "github.com/Finnhub-Stock-API/finnhub-go"
 	"log"
 	"os"
 	"os/signal"
@@ -25,22 +23,10 @@ func init() {
 }
 
 func main() {
-	// initialize data and auth
-	// initialize symbol -> description data
+	// initialize stonksClient
 	stonksDataPath := os.Getenv("STONKS_DATA_PATH")
-	if stonksDataPath == "" {
-		log.Fatal("Please set STONKS_DATA_PATH")
-	}
-
-	records, err := stonksV1.GetStonksDataFromCSV(stonksDataPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	// initialize finnhub api auth
-	finnhubClient := finnhub.NewAPIClient(finnhub.NewConfiguration()).DefaultApi
-	finnhubAuth := context.WithValue(context.Background(), finnhub.ContextAPIKey, finnhub.APIKey{
-		Key: os.Getenv("FINNHUB_API_KEY"),
-	})
+	key := os.Getenv("FINNHUB_API_KEY")
+	sc := stonksV1.NewStonksClient(key, stonksDataPath)
 
 	// Create a new Discord session using the provided bot token.
 	dg, err := discordgo.New("Bot " + Token)
@@ -50,7 +36,7 @@ func main() {
 	}
 
 	// Register the messageCreate func as a callback for MessageCreate events.
-	dg.AddHandler(genMessageCreate(records, finnhubClient, finnhubAuth))
+	dg.AddHandler(genMessageCreate(sc))
 
 	// In this example, we only care about receiving message events.
 	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsGuildMessages)
@@ -64,9 +50,9 @@ func main() {
 
 	// Wait here until CTRL-C or other term signal is received.
 	fmt.Println("Bot is now running.  Press CTRL-C to exit.")
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
-	<-sc
+	scc := make(chan os.Signal, 1)
+	signal.Notify(scc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
+	<-scc
 
 	// Cleanly close down the Discord session.
 	dg.Close()
@@ -74,7 +60,7 @@ func main() {
 
 // This function will be called (due to AddHandler above) every time a new
 // message is created on any channel that the authenticated bot has access to.
-func genMessageCreate(records [][]string, finnhubClient *finnhub.DefaultApiService, finnhubAuth context.Context) func(s *discordgo.Session, m *discordgo.MessageCreate) {
+func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *discordgo.MessageCreate) {
 	return func(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		// Ignore all messages created by the bot itself
@@ -93,27 +79,29 @@ func genMessageCreate(records [][]string, finnhubClient *finnhub.DefaultApiServi
 		}
 
 		if strings.HasPrefix(m.Content, "!quote") {
-			resp, err := quote(m.Content, records, finnhubClient, finnhubAuth)
+			resp, err := quote(m.Content, sc)
 			if err != nil {
 				log.Printf("Error: %s\n", err)
 			}
 			s.ChannelMessageSend(m.ChannelID, resp)
 		}
 		if strings.HasPrefix(m.Content, "!q") {
-			resp, err := quote(m.Content, records, finnhubClient, finnhubAuth)
-			if err != nil {
-				log.Printf("Error: %s\n", err)
+			symbols := strings.Split(strings.ToUpper(strings.Split(m.Content, " ")[1]), ",")
+			for _, symbol := range symbols {
+				resp, err := quote(symbol, sc)
+				if err != nil {
+					log.Printf("Error: %s\n", err)
+				}
+				s.ChannelMessageSend(m.ChannelID, resp)
 			}
-			s.ChannelMessageSend(m.ChannelID, resp)
 		}
 	}
 }
 
-func quote(args string, records [][]string, finnhubClient *finnhub.DefaultApiService, finnhubAuth context.Context) (msg string, err error) {
-	symbol := strings.ToUpper(strings.Split(args, " ")[1])
+func quote(symbol string, sc *stonksV1.StonksClient) (msg string, err error) {
 
 	log.Printf("Looking up stock quote: %s\n", symbol)
-	detail, err := stonksV1.Quote(symbol, true, records, finnhubClient, finnhubAuth)
+	detail, err := sc.Quote(symbol)
 	if err != nil {
 		log.Printf("Error getting stock quote %s", err)
 		return "", err
