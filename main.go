@@ -85,6 +85,14 @@ func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *d
 			}
 			s.ChannelMessageSend(m.ChannelID, resp)
 		}
+		if strings.HasPrefix(m.Content, "!short") {
+			symbol := strings.Split(m.Content, " ")[1]
+			resp, err := short(symbol, sc)
+			if err != nil {
+				log.Printf("Error: %s\n", err)
+			}
+			s.ChannelMessageSend(m.ChannelID, resp)
+		}
 		if strings.HasPrefix(m.Content, "!q") {
 			symbols := strings.Split(strings.ToUpper(strings.Split(m.Content, " ")[1]), ",")
 			for _, symbol := range symbols {
@@ -96,6 +104,25 @@ func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *d
 			}
 		}
 	}
+}
+
+func short(symbol string, sc *stonksV1.StonksClient) (msg string, err error) {
+
+	log.Printf("Looking up short interest on quote: %s\n", symbol)
+	detail, err := sc.GetShortInterestBeta(symbol)
+	if err != nil {
+		log.Printf("Error getting short interest %s", err)
+		return "", err
+	}
+	log.Printf("%+v\n", detail)
+	res := "```"
+	for _, item := range detail.Data {
+		res += fmt.Sprintf("%s: %d\n", item.Date, item.ShortInterest)
+	}
+	res += "```"
+	fmt.Printf("res: %s", res)
+
+	return res, nil
 }
 
 func quote(symbol string, sc *stonksV1.StonksClient) (msg string, err error) {
