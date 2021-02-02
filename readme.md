@@ -9,6 +9,7 @@ Query stock ticker information from discord
 `!q foo`
 `!quote foo`
 `!q foo,bar,baz`
+`!detail aapl`
 
 # Notes
 
