@@ -78,13 +78,6 @@ func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *d
 			s.ChannelMessageSend(m.ChannelID, "Ping!")
 		}
 
-		if strings.HasPrefix(m.Content, "!quote") {
-			resp, err := quote(m.Content, sc)
-			if err != nil {
-				log.Printf("Error: %s\n", err)
-			}
-			s.ChannelMessageSend(m.ChannelID, resp)
-		}
 		if strings.HasPrefix(m.Content, "!short") {
 			symbol := strings.Split(m.Content, " ")[1]
 			resp, err := short(symbol, sc)
@@ -92,6 +85,21 @@ func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *d
 				log.Printf("Error: %s\n", err)
 			}
 			s.ChannelMessageSend(m.ChannelID, resp)
+		}
+		if strings.HasPrefix(m.Content, "!quote") {
+			resp, err := quote(m.Content, sc)
+			if err != nil {
+				log.Printf("Error: %s\n", err)
+			}
+			s.ChannelMessageSend(m.ChannelID, resp)
+		}
+		if strings.HasPrefix(m.Content, "!detail") {
+			symbol := strings.Split(m.Content, " ")[1]
+			msg, err := quoteDetail(symbol, sc)
+			if err != nil {
+				log.Printf("Error: %s\n", err)
+			}
+			s.ChannelMessageSendComplex(m.ChannelID, msg)
 		}
 		if strings.HasPrefix(m.Content, "!q") {
 			symbols := strings.Split(strings.ToUpper(strings.Split(m.Content, " ")[1]), ",")
@@ -123,6 +131,96 @@ func short(symbol string, sc *stonksV1.StonksClient) (msg string, err error) {
 	fmt.Printf("res: %s", res)
 
 	return res, nil
+}
+func quoteDetail(sym string, sc *stonksV1.StonksClient) (message *discordgo.MessageSend, err error) {
+	symbol := strings.ToUpper(sym)
+	log.Printf("Looking up stock quote: %s\n", symbol)
+	quote, err := sc.Quote(symbol)
+	if err != nil {
+		log.Printf("Error getting stock quote %s", err)
+		return &discordgo.MessageSend{}, err
+	}
+	companyProfile, err := sc.CompanyProfile2(symbol)
+	if err != nil {
+		return &discordgo.MessageSend{}, err
+	}
+	var color int
+	if quote.DailyChange < 0 {
+		color = 0xce2212
+	} else {
+		color = 0x0b9e17
+	}
+	if quote.DailyChange == 0 {
+		color = 0x7d8482
+	}
+	var mktCap string
+	mktCap = fmt.Sprintf("%.3f B", companyProfile.MarketCapitalization/1000)
+	if companyProfile.MarketCapitalization > 1000000 {
+		mktCap = fmt.Sprintf("%.3f T", companyProfile.MarketCapitalization/1000000)
+	}
+
+	embed := discordgo.MessageEmbed{
+		Color: color,
+		Image: &discordgo.MessageEmbedImage{
+			URL: companyProfile.Logo,
+		},
+		Author: &discordgo.MessageEmbedAuthor{
+			Name: fmt.Sprintf("%s - %s", symbol, quote.Description),
+		},
+		Fields: []*discordgo.MessageEmbedField{
+			&discordgo.MessageEmbedField{
+				Name:   "Price",
+				Value:  fmt.Sprintf("%.3f", quote.Price),
+				Inline: true,
+			},
+			&discordgo.MessageEmbedField{
+				Name:   "Market Cap",
+				Value:  mktCap,
+				Inline: true,
+			},
+			&discordgo.MessageEmbedField{
+				Name:   "Daily High",
+				Value:  fmt.Sprintf("%.3f", quote.HighPrice),
+				Inline: true,
+			},
+			&discordgo.MessageEmbedField{
+				Name:   "Daily Low",
+				Value:  fmt.Sprintf("%.3f", quote.LowPrice),
+				Inline: true,
+			},
+			&discordgo.MessageEmbedField{
+				Name:   "Open Price",
+				Value:  fmt.Sprintf("%.3f", quote.OpenPrice),
+				Inline: true,
+			},
+			&discordgo.MessageEmbedField{
+				Name:   "Previous Close Price",
+				Value:  fmt.Sprintf("%.3f", quote.PreviousClosePrice),
+				Inline: true,
+			},
+			&discordgo.MessageEmbedField{
+				Name:   "Daily Change",
+				Value:  fmt.Sprintf("%.3f %%", quote.DailyChange),
+				Inline: true,
+			},
+			&discordgo.MessageEmbedField{
+				Name:   "Pre Rona Price",
+				Value:  fmt.Sprintf("%.3f", quote.PreRonaPrice),
+				Inline: true,
+			},
+			&discordgo.MessageEmbedField{
+				Name:   "Exchange",
+				Value:  fmt.Sprintf("%s", companyProfile.Exchange),
+				Inline: true,
+			},
+		},
+	}
+
+	message = &discordgo.MessageSend{
+		Embed: &embed,
+	}
+	return message, nil
+
 }
 
 func quote(symbol string, sc *stonksV1.StonksClient) (msg string, err error) {
