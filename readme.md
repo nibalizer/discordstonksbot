@@ -2,6 +2,7 @@
 
 Query stock ticker information from discord
 
+![bot](img/discord_stonk_bot.png)
 
 # Commands
 
