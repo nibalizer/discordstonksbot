@@ -99,7 +99,13 @@ func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *d
 			if err != nil {
 				log.Printf("Error: %s\n", err)
 			}
-			s.ChannelMessageSendComplex(m.ChannelID, msg)
+			out, err := s.ChannelMessageSendComplex(m.ChannelID, msg)
+			if err != nil {
+				log.Println(err)
+			} else {
+				fmt.Printf("out = %+v\n", out)
+			}
+
 		}
 		if strings.HasPrefix(m.Content, "!q") {
 			symbols := strings.Split(strings.ToUpper(strings.Split(m.Content, " ")[1]), ",")
@@ -142,6 +148,7 @@ func quoteDetail(sym string, sc *stonksV1.StonksClient) (message *discordgo.Mess
 	}
 	companyProfile, err := sc.CompanyProfile2(symbol)
 	if err != nil {
+		log.Printf("Error getting company profile %s", err)
 		return &discordgo.MessageSend{}, err
 	}
 	var color int
@@ -208,17 +215,20 @@ func quoteDetail(sym string, sc *stonksV1.StonksClient) (message *discordgo.Mess
 				Value:  fmt.Sprintf("%.3f", quote.PreRonaPrice),
 				Inline: true,
 			},
-			&discordgo.MessageEmbedField{
-				Name:   "Exchange",
-				Value:  fmt.Sprintf("%s", companyProfile.Exchange),
-				Inline: true,
-			},
 		},
+	}
+	if companyProfile.Exchange != "" {
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "Exchange",
+			Value:  fmt.Sprintf("%s", companyProfile.Exchange),
+			Inline: true,
+		})
 	}
 
 	message = &discordgo.MessageSend{
 		Embed: &embed,
 	}
+
 	return message, nil
 
 }
