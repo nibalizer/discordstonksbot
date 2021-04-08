@@ -9,6 +9,9 @@ RUN go get
 RUN CGO_ENABLED=0 go build -o /bin/discordstonkbot
 
 FROM alpine
+RUN apk add bash lftp
 COPY --from=build /bin/discordstonkbot /bin/discordstonkbot
+COPY --from=build /go/src/github.com/nibalizer/stonksapi/contrib/get_stonks_db.sh /
+COPY --from=build /go/src/github.com/nibalizer/stonksapi/contrib/ftpcmds.txt /
 COPY stonksdata.txt /stonksdata.txt
 ENTRYPOINT ["/bin/discordstonkbot"]

@@ -117,6 +117,22 @@ func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *d
 				s.ChannelMessageSend(m.ChannelID, resp)
 			}
 		}
+		if strings.HasPrefix(m.Content, "!reload") {
+			err := sc.PullNewDescriptions()
+			if err != nil {
+				log.Println(err)
+				s.ChannelMessageSend(m.ChannelID, "Error reloading")
+			} else {
+				err := sc.ReloadDescriptions()
+				if err != nil {
+					log.Println(err)
+					s.ChannelMessageSend(m.ChannelID, "Error reloading")
+				} else {
+					s.ChannelMessageSend(m.ChannelID, "Reload Complete! New ticker information pulled from FTP.")
+				}
+			}
+
+		}
 	}
 }
 
