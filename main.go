@@ -109,8 +109,23 @@ func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *d
 		}
 		if strings.HasPrefix(m.Content, "!q") {
 			symbols := strings.Split(strings.ToUpper(strings.Split(m.Content, " ")[1]), ",")
+			if len(strings.Split(m.Content, " ")) == 3 {
+				dates := strings.Split(strings.Split(m.Content, " ")[2], ",")
+				fmt.Printf("dates = %+v\n", dates)
+			}
 			for _, symbol := range symbols {
 				resp, err := quote(symbol, sc)
+				if err != nil {
+					log.Printf("Error: %s\n", err)
+				}
+				s.ChannelMessageSend(m.ChannelID, resp)
+			}
+		}
+		if strings.HasPrefix(m.Content, "!c") {
+			symbols := strings.Split(strings.ToUpper(strings.Split(m.Content, " ")[1]), ",")
+			date := strings.Split(m.Content, " ")[2]
+			for _, symbol := range symbols {
+				resp, err := change(symbol, date, sc)
 				if err != nil {
 					log.Printf("Error: %s\n", err)
 				}
@@ -260,4 +275,20 @@ func quote(symbol string, sc *stonksV1.StonksClient) (msg string, err error) {
 	log.Printf("%+v\n", detail)
 
 	return detail.FormattedDetail, nil
+}
+
+func change(symbol string, date string, sc *stonksV1.StonksClient) (msg string, err error) {
+
+	log.Printf("Looking up stock quote: %s\n", symbol)
+	detail, err := sc.Quote(symbol)
+	if err != nil {
+		log.Printf("Error getting stock quote %s", err)
+		return "", err
+	}
+	log.Printf("%+v\n", detail)
+	oldprice, datetime, err := sc.GetPriceAt(symbol, date)
+	change := ((detail.Price / oldprice) * 100) - 100
+	msg = fmt.Sprintf("Symbol: %s. Price Now: %5.2f, Price at %s: %5.2f, Change: %5.2f%%\n", symbol, detail.Price, datetime.String(), oldprice, change)
+
+	return msg, nil
 }
