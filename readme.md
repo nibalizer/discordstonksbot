@@ -11,6 +11,7 @@ Query stock ticker information from discord
 `!quote foo`
 `!q foo,bar,baz`
 `!detail aapl`
+`!c aapl 5w`
 `!short gme`
 
 # Notes
