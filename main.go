@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -8,8 +9,8 @@ import (
 	"strings"
 	"syscall"
 
+	finnhub "github.com/Finnhub-Stock-API/finnhub-go/v2"
 	"github.com/bwmarrin/discordgo"
-	stonksV1 "github.com/nibalizer/stonksapi/v1"
 )
 
 // Variables used for command line parameters
@@ -22,11 +23,38 @@ func init() {
 	Token = os.Getenv("DISCORD_BOT_TOKEN")
 }
 
+func Quote(symbol string) string {
+	cfg := finnhub.NewConfiguration()
+	apiKey := os.Getenv("FINNHUB_API_KEY")
+	if len(apiKey) == 0 {
+		log.Fatal("FINNHUB_API_KEY not set!")
+	}
+	cfg.AddDefaultHeader("X-Finnhub-Token", apiKey)
+	finnhubClient := finnhub.NewAPIClient(cfg).DefaultApi
+
+	// Quote
+	quote, _, err := finnhubClient.Quote(context.Background()).Symbol(symbol).Execute()
+	if err != nil {
+		log.Print(err)
+		return ""
+	}
+	if *quote.C == 0 {
+		result := "Symbol not found"
+		log.Print(result)
+		return result
+	}
+
+	result := fmt.Sprintf("%s: $%.2f(%.2f%%)", symbol, *quote.C, *quote.Dp)
+	fmt.Println(result)
+	return result
+
+}
+
 func main() {
-	// initialize stonksClient
-	stonksDataPath := os.Getenv("STONKS_DATA_PATH")
-	key := os.Getenv("FINNHUB_API_KEY")
-	sc := stonksV1.NewStonksClient(key, stonksDataPath)
+	apiKey := os.Getenv("FINNHUB_API_KEY")
+	if len(apiKey) == 0 {
+		log.Fatal("FINNHUB_API_KEY not set!")
+	}
 
 	// Create a new Discord session using the provided bot token.
 	dg, err := discordgo.New("Bot " + Token)
@@ -36,7 +64,7 @@ func main() {
 	}
 
 	// Register the messageCreate func as a callback for MessageCreate events.
-	dg.AddHandler(genMessageCreate(sc))
+	dg.AddHandler(genMessageCreate())
 
 	// In this example, we only care about receiving message events.
 	dg.Identify.Intents = discordgo.MakeIntent(discordgo.IntentsGuildMessages)
@@ -60,7 +88,7 @@ func main() {
 
 // This function will be called (due to AddHandler above) every time a new
 // message is created on any channel that the authenticated bot has access to.
-func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *discordgo.MessageCreate) {
+func genMessageCreate() func(s *discordgo.Session, m *discordgo.MessageCreate) {
 	return func(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		// Ignore all messages created by the bot itself
@@ -78,217 +106,13 @@ func genMessageCreate(sc *stonksV1.StonksClient) func(s *discordgo.Session, m *d
 			s.ChannelMessageSend(m.ChannelID, "Ping!")
 		}
 
-		if strings.HasPrefix(m.Content, "!short") {
-			symbol := strings.Split(m.Content, " ")[1]
-			resp, err := short(symbol, sc)
-			if err != nil {
-				log.Printf("Error: %s\n", err)
-			}
-			s.ChannelMessageSend(m.ChannelID, resp)
-		}
-		if strings.HasPrefix(m.Content, "!quote") {
-			resp, err := quote(m.Content, sc)
-			if err != nil {
-				log.Printf("Error: %s\n", err)
-			}
-			s.ChannelMessageSend(m.ChannelID, resp)
-		}
-		if strings.HasPrefix(m.Content, "!detail") {
-			symbol := strings.Split(m.Content, " ")[1]
-			msg, err := quoteDetail(symbol, sc)
-			if err != nil {
-				log.Printf("Error: %s\n", err)
-			}
-			out, err := s.ChannelMessageSendComplex(m.ChannelID, msg)
-			if err != nil {
-				log.Println(err)
-			} else {
-				fmt.Printf("out = %+v\n", out)
-			}
-
-		}
 		if strings.HasPrefix(m.Content, "!q") {
 			symbols := strings.Split(strings.ToUpper(strings.Split(m.Content, " ")[1]), ",")
-			if len(strings.Split(m.Content, " ")) == 3 {
-				dates := strings.Split(strings.Split(m.Content, " ")[2], ",")
-				fmt.Printf("dates = %+v\n", dates)
-			}
 			for _, symbol := range symbols {
-				resp, err := quote(symbol, sc)
-				if err != nil {
-					log.Printf("Error: %s\n", err)
-				}
+				fmt.Printf("symbol = %+v\n", symbol)
+				resp := Quote(symbol)
 				s.ChannelMessageSend(m.ChannelID, resp)
 			}
 		}
-		if strings.HasPrefix(m.Content, "!c") {
-			symbols := strings.Split(strings.ToUpper(strings.Split(m.Content, " ")[1]), ",")
-			date := strings.Split(m.Content, " ")[2]
-			for _, symbol := range symbols {
-				resp, err := change(symbol, date, sc)
-				if err != nil {
-					log.Printf("Error: %s\n", err)
-				}
-				s.ChannelMessageSend(m.ChannelID, resp)
-			}
-		}
-		if strings.HasPrefix(m.Content, "!reload") {
-			err := sc.PullNewDescriptions()
-			if err != nil {
-				log.Println(err)
-				s.ChannelMessageSend(m.ChannelID, "Error reloading")
-			} else {
-				err := sc.ReloadDescriptions()
-				if err != nil {
-					log.Println(err)
-					s.ChannelMessageSend(m.ChannelID, "Error reloading")
-				} else {
-					s.ChannelMessageSend(m.ChannelID, "Reload Complete! New ticker information pulled from FTP.")
-				}
-			}
-
-		}
 	}
-}
-
-func short(symbol string, sc *stonksV1.StonksClient) (msg string, err error) {
-
-	log.Printf("Looking up short interest on quote: %s\n", symbol)
-	detail, err := sc.GetShortInterestBeta(symbol)
-	if err != nil {
-		log.Printf("Error getting short interest %s", err)
-		return "", err
-	}
-	log.Printf("%+v\n", detail)
-	res := "```"
-	for _, item := range detail.Data {
-		res += fmt.Sprintf("%s: %d\n", item.Date, item.ShortInterest)
-	}
-	res += "```"
-	fmt.Printf("res: %s", res)
-
-	return res, nil
-}
-func quoteDetail(sym string, sc *stonksV1.StonksClient) (message *discordgo.MessageSend, err error) {
-	symbol := strings.ToUpper(sym)
-	log.Printf("Looking up stock quote: %s\n", symbol)
-	quote, err := sc.Quote(symbol)
-	if err != nil {
-		log.Printf("Error getting stock quote %s", err)
-		return &discordgo.MessageSend{}, err
-	}
-	companyProfile, err := sc.CompanyProfile2(symbol)
-	if err != nil {
-		log.Printf("Error getting company profile %s", err)
-		return &discordgo.MessageSend{}, err
-	}
-	var color int
-	if quote.DailyChange < 0 {
-		color = 0xce2212
-	} else {
-		color = 0x0b9e17
-	}
-	if quote.DailyChange == 0 {
-		color = 0x7d8482
-	}
-	var mktCap string
-	mktCap = fmt.Sprintf("%.3f B", companyProfile.MarketCapitalization/1000)
-	if companyProfile.MarketCapitalization > 1000000 {
-		mktCap = fmt.Sprintf("%.3f T", companyProfile.MarketCapitalization/1000000)
-	}
-
-	embed := discordgo.MessageEmbed{
-		Color: color,
-		Image: &discordgo.MessageEmbedImage{
-			URL: companyProfile.Logo,
-		},
-		Author: &discordgo.MessageEmbedAuthor{
-			Name: fmt.Sprintf("%s - %s", symbol, quote.Description),
-		},
-		Fields: []*discordgo.MessageEmbedField{
-			&discordgo.MessageEmbedField{
-				Name:   "Price",
-				Value:  fmt.Sprintf("%.3f", quote.Price),
-				Inline: true,
-			},
-			&discordgo.MessageEmbedField{
-				Name:   "Market Cap",
-				Value:  mktCap,
-				Inline: true,
-			},
-			&discordgo.MessageEmbedField{
-				Name:   "Daily High",
-				Value:  fmt.Sprintf("%.3f", quote.HighPrice),
-				Inline: true,
-			},
-			&discordgo.MessageEmbedField{
-				Name:   "Daily Low",
-				Value:  fmt.Sprintf("%.3f", quote.LowPrice),
-				Inline: true,
-			},
-			&discordgo.MessageEmbedField{
-				Name:   "Open Price",
-				Value:  fmt.Sprintf("%.3f", quote.OpenPrice),
-				Inline: true,
-			},
-			&discordgo.MessageEmbedField{
-				Name:   "Previous Close Price",
-				Value:  fmt.Sprintf("%.3f", quote.PreviousClosePrice),
-				Inline: true,
-			},
-			&discordgo.MessageEmbedField{
-				Name:   "Daily Change",
-				Value:  fmt.Sprintf("%.3f %%", quote.DailyChange),
-				Inline: true,
-			},
-			&discordgo.MessageEmbedField{
-				Name:   "Pre Rona Price",
-				Value:  fmt.Sprintf("%.3f", quote.PreRonaPrice),
-				Inline: true,
-			},
-		},
-	}
-	if companyProfile.Exchange != "" {
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "Exchange",
-			Value:  fmt.Sprintf("%s", companyProfile.Exchange),
-			Inline: true,
-		})
-	}
-
-	message = &discordgo.MessageSend{
-		Embed: &embed,
-	}
-
-	return message, nil
-
-}
-
-func quote(symbol string, sc *stonksV1.StonksClient) (msg string, err error) {
-
-	log.Printf("Looking up stock quote: %s\n", symbol)
-	detail, err := sc.Quote(symbol)
-	if err != nil {
-		log.Printf("Error getting stock quote %s", err)
-		return "", err
-	}
-	log.Printf("%+v\n", detail)
-
-	return detail.FormattedDetail, nil
-}
-
-func change(symbol string, date string, sc *stonksV1.StonksClient) (msg string, err error) {
-
-	log.Printf("Looking up stock quote: %s\n", symbol)
-	detail, err := sc.Quote(symbol)
-	if err != nil {
-		log.Printf("Error getting stock quote %s", err)
-		return "", err
-	}
-	log.Printf("%+v\n", detail)
-	oldprice, datetime, err := sc.GetPriceAt(symbol, date)
-	change := ((detail.Price / oldprice) * 100) - 100
-	msg = fmt.Sprintf("Symbol: %s. Price Now: %5.2f, Price at %s: %5.2f, Change: %5.2f%%\n", symbol, detail.Price, datetime.String(), oldprice, change)
-
-	return msg, nil
 }
