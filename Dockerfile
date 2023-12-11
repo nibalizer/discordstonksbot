@@ -1,17 +1,13 @@
-FROM golang:alpine AS build
+# Borrowed from https://medium.com/@treeder/multi-stage-docker-builds-for-creating-tiny-go-images-e0e1867efe5a
+# build stage
+FROM golang:1.21-alpine AS build-env
+RUN apk --no-cache add build-base git mercurial gcc clang clang-dev
+RUN mkdir /app
+ADD go.mod go.sum *.go /app/
+RUN cd /app && CXX=clang++ CGO_ENABLED=1 go build -o goapp
 
-RUN apk add git
-RUN mkdir -p /go/src/github.com/nibalizer/discordbot
-WORKDIR /go/src/github.com/nibalizer/discordbot
-COPY main.go go.* /go/src/github.com/nibalizer/discordbot
-RUN echo $GOPATH
-RUN go get
-RUN CGO_ENABLED=0 go build -o /bin/discordstonkbot
-
+# final stage
 FROM alpine
-RUN apk add bash lftp
-COPY --from=build /bin/discordstonkbot /bin/discordstonkbot
-COPY --from=build /go/src/github.com/nibalizer/stonksapi/contrib/get_stonks_db.sh /
-COPY --from=build /go/src/github.com/nibalizer/stonksapi/contrib/ftpcmds.txt /
-COPY stonksdata.txt /stonksdata.txt
-ENTRYPOINT ["/bin/discordstonkbot"]
+WORKDIR /app
+COPY --from=build-env /app/goapp /app/
+ENTRYPOINT ./goapp

@@ -1,3 +1,5 @@
 env.sh
 deploy.sh
 .env
+*.tar
+*.tar.gz
